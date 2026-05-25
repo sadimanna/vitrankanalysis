@@ -1,0 +1,64 @@
+seed: 42
+output_dir: outputs/vit_b16_cifar10
+
+model:
+  source: timm
+  name: vit_base_patch16_224
+  pretrained: false
+  lora:
+    enabled: false
+    r: 8
+    alpha: 16
+    dropout: 0.0
+    target: all
+
+training:
+  epochs: 5
+  batch_size: 64
+  lr: 3.0e-4
+  weight_decay: 0.05
+  betas: [0.9, 0.999]
+  grad_clip_norm: 1.0
+  mixed_precision: true
+  log_interval: 50
+
+  dataset:
+    name: cifar10
+    data_dir: data
+    image_size: 224
+    num_workers: 4
+
+  grad_collect:
+    enabled: true
+    interval: 10
+    param_filter: full
+    per_layer: true
+    attention_only: false
+    mlp_only: false
+    subsample: 0
+    normalization: l2
+    dtype: fp16
+    cpu_offload: true
+
+  projection:
+    enabled: true
+    method: achlioptas
+    dim: 512
+    chunk_size: 16384
+    seed: 123
+
+analysis:
+  compute_exact_gram: true
+  streaming:
+    oja: true
+    incremental_pca: true
+    frequent_directions: true
+    sketch_dim: 128
+  spectral:
+    energy_thresholds: [0.9, 0.95, 0.99]
+    powerlaw_fit: true
+
+visualization:
+  enabled: true
+  style: paper
+  save_formats: [png]

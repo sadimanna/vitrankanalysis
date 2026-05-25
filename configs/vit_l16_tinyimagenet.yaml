@@ -1,0 +1,64 @@
+seed: 42
+output_dir: outputs/vit_l16_tinyimagenet
+
+model:
+  source: timm
+  name: vit_large_patch16_224
+  pretrained: false
+  lora:
+    enabled: true
+    r: 16
+    alpha: 32
+    dropout: 0.05
+    target: attention
+
+training:
+  epochs: 2
+  batch_size: 32
+  lr: 1.0e-4
+  weight_decay: 0.05
+  betas: [0.9, 0.999]
+  grad_clip_norm: 1.0
+  mixed_precision: true
+  log_interval: 20
+
+  dataset:
+    name: tinyimagenet
+    data_dir: data/tiny-imagenet-200
+    image_size: 224
+    num_workers: 4
+
+  grad_collect:
+    enabled: true
+    interval: 20
+    param_filter: full
+    per_layer: true
+    attention_only: true
+    mlp_only: false
+    subsample: 0
+    normalization: per_layer
+    dtype: bf16
+    cpu_offload: true
+
+  projection:
+    enabled: true
+    method: sparse
+    dim: 1024
+    chunk_size: 8192
+    seed: 123
+
+analysis:
+  compute_exact_gram: true
+  streaming:
+    oja: true
+    incremental_pca: true
+    frequent_directions: true
+    sketch_dim: 256
+  spectral:
+    energy_thresholds: [0.9, 0.95, 0.99]
+    powerlaw_fit: true
+
+visualization:
+  enabled: true
+  style: paper
+  save_formats: [png]
