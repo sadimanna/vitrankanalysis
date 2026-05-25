@@ -1,5 +1,5 @@
 seed: 42
-output_dir: outputs/vit_b16_cifar10
+output_dir: outputs/vit_b16_cifar100
 
 model:
   source: timm
@@ -23,11 +23,11 @@ training:
   log_interval: 50
 
   dataset:
-    name: cifar10
+    name: cifar100
     data_dir: data
     image_size: 32
     num_workers: 4
-    num_classes: 10
+    num_classes: 100
 
   grad_collect:
     enabled: true
