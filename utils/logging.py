@@ -6,6 +6,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict
 
+import numpy as np
+
 
 def setup_logger(name: str, output_dir: str) -> logging.Logger:
     logger = logging.getLogger(name)
@@ -22,6 +24,14 @@ def setup_logger(name: str, output_dir: str) -> logging.Logger:
     return logger
 
 
+def _json_default(obj: Any) -> Any:
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, np.generic):
+        return obj.item()
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+
+
 def write_json(path: str, payload: Dict[str, Any]) -> None:
     with open(path, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2)
+        json.dump(payload, handle, indent=2, default=_json_default)

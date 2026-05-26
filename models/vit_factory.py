@@ -27,11 +27,23 @@ def create_vit(
     pretrained: bool,
     num_classes: int,
     lora_cfg: LoRAConfig,
+    image_size: int | None = None,
+    patch_size: int | None = None,
 ) -> nn.Module:
     if source == "timm":
         if timm is None:
             raise RuntimeError("timm is not available")
-        model = timm.create_model(name, pretrained=pretrained, num_classes=num_classes)
+        extra_args = {}
+        if image_size is not None:
+            extra_args["img_size"] = image_size
+        if patch_size is not None:
+            extra_args["patch_size"] = patch_size
+        model = timm.create_model(
+            name,
+            pretrained=pretrained,
+            num_classes=num_classes,
+            **extra_args,
+        )
     elif source == "torchvision":
         if torchvision is None:
             raise RuntimeError("torchvision is not available")

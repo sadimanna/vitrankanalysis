@@ -2,13 +2,21 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 
 import numpy as np
 import yaml
 import torch
-from torch.cuda.amp import GradScaler, autocast
+try:
+    from torch.amp import GradScaler as AmpGradScaler
+    from torch.amp import autocast as amp_autocast
+except Exception:  # pragma: no cover - older torch
+    AmpGradScaler = None
+    amp_autocast = None
+from torch.cuda.amp import GradScaler as CudaGradScaler
+from torch.cuda.amp import autocast as cuda_autocast
 
 from analysis.gram import GramAccumulator
 from analysis.gradient_collector import GradientCollectConfig, GradientCollector
@@ -18,7 +26,7 @@ from analysis.streaming import FrequentDirections, IncrementalPCA, IncrementalPC
 from models.lora import LoRAConfig, lora_parameters
 from models.vit_factory import create_vit
 from training.data import get_dataloaders
-from training.optim import build_optimizer
+from training.optim import build_optimizer, build_scheduler
 from utils.config import load_config
 from utils.dist import init_distributed, is_rank0
 from utils.logging import setup_logger, write_json
@@ -34,11 +42,39 @@ from visualization.plots import (
 )
 
 
+def _evaluate_accuracy(
+    model: torch.nn.Module,
+    loader: torch.utils.data.DataLoader,
+    device: torch.device,
+    use_amp: bool,
+) -> float:
+    autocast_ctx = amp_autocast if amp_autocast is not None else cuda_autocast
+    model.eval()
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for images, targets in loader:
+            images = images.to(device)
+            targets = targets.to(device)
+            with autocast_ctx(
+                **({"device_type": device.type} if autocast_ctx is amp_autocast else {}),
+                enabled=use_amp,
+            ):
+                logits = model(images)
+            preds = logits.argmax(dim=1)
+            correct += (preds == targets).sum().item()
+            total += targets.numel()
+    model.train()
+    return float(correct) / max(float(total), 1.0)
+
+
 def train_loop(cfg: Dict) -> None:
     distributed, rank = init_distributed()
     set_seed(cfg["seed"], deterministic=False)
 
-    output_dir = Path(cfg["output_dir"])
+    output_root = Path(cfg["output_dir"])
+    run_name = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    output_dir = output_root / run_name
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "metrics").mkdir(exist_ok=True)
     (output_dir / "spectra").mkdir(exist_ok=True)
@@ -53,12 +89,13 @@ def train_loop(cfg: Dict) -> None:
     train_cfg = cfg["training"]
     data_cfg = train_cfg["dataset"]
 
-    train_loader, _, num_classes = get_dataloaders(
+    train_loader, test_loader, num_classes = get_dataloaders(
         data_cfg["name"],
         data_cfg["data_dir"],
         data_cfg["image_size"],
         train_cfg["batch_size"],
         data_cfg["num_workers"],
+        augmentation=data_cfg.get("augmentation"),
     )
 
     lora_cfg = LoRAConfig(**cfg["model"]["lora"])
@@ -68,6 +105,8 @@ def train_loop(cfg: Dict) -> None:
         cfg["model"]["pretrained"],
         num_classes,
         lora_cfg,
+        image_size=data_cfg["image_size"],
+        patch_size=data_cfg["patch_size"],
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -84,8 +123,21 @@ def train_loop(cfg: Dict) -> None:
         train_cfg["weight_decay"],
         tuple(train_cfg["betas"]),
     )
+    scheduler_cfg = train_cfg.get("scheduler", {"name": "none"})
+    scheduler = build_scheduler(optimizer, scheduler_cfg, train_cfg["epochs"])
 
-    scaler = GradScaler(enabled=train_cfg["mixed_precision"])
+    if AmpGradScaler is not None:
+        try:
+            scaler = AmpGradScaler(
+                device_type=device.type, enabled=train_cfg["mixed_precision"]
+            )
+        except TypeError:
+            try:
+                scaler = AmpGradScaler(device.type, enabled=train_cfg["mixed_precision"])
+            except TypeError:
+                scaler = CudaGradScaler(enabled=train_cfg["mixed_precision"])
+    else:
+        scaler = CudaGradScaler(enabled=train_cfg["mixed_precision"])
     criterion = torch.nn.CrossEntropyLoss()
 
     grad_cfg = GradientCollectConfig(**train_cfg["grad_collect"])
@@ -101,6 +153,8 @@ def train_loop(cfg: Dict) -> None:
     fd = None
 
     global_step = 0
+    test_acc_series: List[float] = []
+
     for epoch in range(train_cfg["epochs"]):
         model.train()
         for batch_idx, (images, targets) in enumerate(train_loader):
@@ -108,7 +162,10 @@ def train_loop(cfg: Dict) -> None:
             targets = targets.to(device)
 
             optimizer.zero_grad(set_to_none=True)
-            with autocast(enabled=train_cfg["mixed_precision"]):
+            with (amp_autocast if amp_autocast is not None else cuda_autocast)(
+                **({"device_type": device.type} if amp_autocast is not None else {}),
+                enabled=train_cfg["mixed_precision"],
+            ):
                 logits = model(images)
                 loss = criterion(logits, targets)
             scaler.scale(loss).backward()
@@ -170,6 +227,16 @@ def train_loop(cfg: Dict) -> None:
                 )
             global_step += 1
 
+        if is_rank0(rank):
+            test_acc = _evaluate_accuracy(
+                model, test_loader, device, train_cfg["mixed_precision"]
+            )
+            test_acc_series.append(test_acc)
+            logger.info("epoch=%d test_acc=%.4f", epoch, test_acc)
+
+        if scheduler is not None:
+            scheduler.step()
+
     if not is_rank0(rank):
         return
 
@@ -222,6 +289,11 @@ def train_loop(cfg: Dict) -> None:
         if param.ndim >= 2:
             isotropy[name] = isotropy_metrics(param)
     write_json(output_dir / "metrics" / "isotropy.json", isotropy)
+    if test_acc_series:
+        write_json(
+            output_dir / "metrics" / "test_accuracy.json",
+            {"values": test_acc_series},
+        )
 
     if oja is not None:
         np.save(output_dir / "metrics" / "oja_components.npy", oja.components.cpu().numpy())
