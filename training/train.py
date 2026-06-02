@@ -68,6 +68,93 @@ def _evaluate_accuracy(
     return float(correct) / max(float(total), 1.0)
 
 
+def _compute_mle_intrinsic_dimension(
+    samples: np.ndarray,
+    n_neighbors: int,
+) -> float | None:
+    if samples.shape[0] < 3:
+        return None
+
+    k = min(int(n_neighbors), samples.shape[0] - 1)
+    if k < 2:
+        return None
+
+    diffs = samples[:, None, :] - samples[None, :, :]
+    distances = np.sqrt(np.sum(diffs * diffs, axis=-1))
+    np.fill_diagonal(distances, np.inf)
+    neighbor_distances = np.sort(distances, axis=1)[:, :k]
+    reference_distance = neighbor_distances[:, -1][:, None]
+    ratios = reference_distance / np.maximum(neighbor_distances[:, :-1], 1e-12)
+    local_denominator = np.mean(np.log(np.maximum(ratios, 1e-12)), axis=1)
+    local_ids = 1.0 / np.maximum(local_denominator, 1e-12)
+    local_ids = local_ids[np.isfinite(local_ids)]
+    if local_ids.size == 0:
+        return None
+    return float(np.mean(local_ids))
+
+
+def _pairwise_distances(samples: np.ndarray) -> np.ndarray:
+    diffs = samples[:, None, :] - samples[None, :, :]
+    distances = np.sqrt(np.sum(diffs * diffs, axis=-1))
+    np.fill_diagonal(distances, np.inf)
+    return distances
+
+
+def _compute_l2n2_intrinsic_dimension(
+    samples: np.ndarray,
+    k: int,
+    j: int,
+    alpha: float | None = None,
+    beta: float | None = None,
+) -> float | None:
+    if samples.shape[0] < max(k, j) + 1:
+        return None
+
+    if alpha is None or beta is None:
+        alpha = 1.0
+        beta = 0.57721
+
+    distances = _pairwise_distances(samples)
+    neighbor_distances = np.sort(distances, axis=1)
+    rk = neighbor_distances[:, k - 1]
+    rj = neighbor_distances[:, j - 1]
+    ratio = rk / np.maximum(rj, 1e-12)
+    lkj_values = -np.log(np.log(np.maximum(ratio, 1.0 + 1e-12)))
+    lkj_values = lkj_values[np.isfinite(lkj_values)]
+    if lkj_values.size == 0:
+        return None
+
+    l_bar = float(np.mean(lkj_values))
+    return float(np.exp(alpha * l_bar + beta))
+
+
+def _compute_twonn_intrinsic_dimension(
+    samples: np.ndarray,
+    discard_fraction: float,
+) -> float | None:
+    if samples.shape[0] < 3:
+        return None
+
+    distances = _pairwise_distances(samples)
+    neighbor_distances = np.sort(distances, axis=1)
+    r1 = neighbor_distances[:, 0]
+    r2 = neighbor_distances[:, 1]
+    mu = r2 / np.maximum(r1, 1e-12)
+    mu_sorted = np.sort(mu)
+    n_keep = int(len(mu_sorted) * (1 - discard_fraction))
+    if n_keep < 2:
+        return None
+
+    mu_final = mu_sorted[:n_keep]
+    f_final = np.arange(1, len(mu_sorted) + 1, dtype=np.float64)[:n_keep] / len(mu_sorted)
+    x = np.log(np.maximum(mu_final, 1e-12))
+    y = -np.log(np.maximum(1 - f_final, 1e-12))
+    denom = float(np.sum(x * x))
+    if denom <= 0:
+        return None
+    return float(np.sum(x * y) / denom)
+
+
 def train_loop(cfg: Dict) -> None:
     distributed, rank = init_distributed()
     set_seed(cfg["seed"], deterministic=False)
@@ -245,6 +332,64 @@ def train_loop(cfg: Dict) -> None:
         np.save(output_dir / "spectra" / "gram_all.npy", K)
         projections = gram_map["all"].get_vectors().cpu().numpy()
         np.save(output_dir / "projections" / "gradients_all.npy", projections)
+        mle_cfg = cfg["analysis"].get("mle", {})
+        l2n2_cfg = cfg["analysis"].get("l2n2", {})
+        twonn_cfg = cfg["analysis"].get("twonn", {})
+
+        mle_neighbors = int(mle_cfg.get("n_neighbors", 20))
+        mle_id = _compute_mle_intrinsic_dimension(projections, mle_neighbors)
+        if mle_id is not None:
+            write_json(
+                output_dir / "metrics" / "mle_all.json",
+                {
+                    "value": mle_id,
+                    "n_neighbors": min(mle_neighbors, max(projections.shape[0] - 1, 0)),
+                    "num_samples": int(projections.shape[0]),
+                },
+            )
+            logger.info("MLE intrinsic dimension = %.4f", mle_id)
+        else:
+            logger.warning("Skipping MLE intrinsic dimension: insufficient gradient samples")
+
+        l2n2_k = int(l2n2_cfg.get("k", 2))
+        l2n2_j = int(l2n2_cfg.get("j", 1))
+        l2n2_alpha = l2n2_cfg.get("alpha")
+        l2n2_beta = l2n2_cfg.get("beta")
+        l2n2_id = _compute_l2n2_intrinsic_dimension(
+            projections,
+            l2n2_k,
+            l2n2_j,
+            l2n2_alpha,
+            l2n2_beta,
+        )
+        if l2n2_id is not None:
+            write_json(
+                output_dir / "metrics" / "l2n2_all.json",
+                {
+                    "value": l2n2_id,
+                    "k": l2n2_k,
+                    "j": l2n2_j,
+                    "num_samples": int(projections.shape[0]),
+                },
+            )
+            logger.info("L2N2 intrinsic dimension = %.4f", l2n2_id)
+        else:
+            logger.warning("Skipping L2N2 intrinsic dimension: insufficient gradient samples")
+
+        twonn_discard_fraction = float(twonn_cfg.get("discard_fraction", 0.1))
+        twonn_id = _compute_twonn_intrinsic_dimension(projections, twonn_discard_fraction)
+        if twonn_id is not None:
+            write_json(
+                output_dir / "metrics" / "twonn_all.json",
+                {
+                    "value": twonn_id,
+                    "discard_fraction": twonn_discard_fraction,
+                    "num_samples": int(projections.shape[0]),
+                },
+            )
+            logger.info("TWO-NN intrinsic dimension = %.4f", twonn_id)
+        else:
+            logger.warning("Skipping TWO-NN intrinsic dimension: insufficient gradient samples")
         eigenvalues = eigenvalues_from_gram(K)
         summary = compute_summary(
             eigenvalues,
