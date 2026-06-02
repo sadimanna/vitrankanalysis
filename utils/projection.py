@@ -17,6 +17,7 @@ class ProjectionConfig:
     dim: int
     chunk_size: int
     seed: int
+    save_raw: bool = False
 
 
 def project_vector(

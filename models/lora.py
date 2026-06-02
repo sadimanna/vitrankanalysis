@@ -49,6 +49,8 @@ def _match_target(name: str, target: str) -> bool:
 def apply_lora(model: nn.Module, cfg: LoRAConfig) -> nn.Module:
     if not cfg.enabled:
         return model
+    for param in model.parameters():
+        param.requires_grad = False
     for name, module in list(model.named_modules()):
         if isinstance(module, nn.Linear) and _match_target(name, cfg.target):
             parent = _get_parent_module(model, name)
@@ -56,6 +58,12 @@ def apply_lora(model: nn.Module, cfg: LoRAConfig) -> nn.Module:
                 continue
             child_name = name.split(".")[-1]
             setattr(parent, child_name, LoRALinear(module, cfg.r, cfg.alpha, cfg.dropout))
+    for module in model.modules():
+        if isinstance(module, LoRALinear):
+            for param in module.lora_a.parameters():
+                param.requires_grad = True
+            for param in module.lora_b.parameters():
+                param.requires_grad = True
     return model
 
 

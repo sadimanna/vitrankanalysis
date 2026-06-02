@@ -44,14 +44,36 @@ class GradientCollector:
             out: Dict[str, torch.Tensor] = {}
             for layer, pairs in layer_map.items():
                 vec = self._flatten([p for _, p in pairs])
+                raw_bytes = int(vec.numel() * vec.element_size())
+                # print(
+                #     f"gradient[{layer}] raw_len={vec.numel()} raw_mem={raw_bytes} bytes ({raw_bytes/1024**2:.3f} MB)"
+                # )
+                if self.proj_cfg.enabled and getattr(self.proj_cfg, "save_raw", False):
+                    out[f"{layer}_raw"] = self._maybe_cast(vec)
                 vec = self._apply_normalization(vec, mode="per_layer")
                 vec = self._maybe_project(vec)
+                proj_bytes = int(vec.numel() * vec.element_size())
+                # print(
+                #     f"gradient[{layer}] projected_len={vec.numel()} proj_mem={proj_bytes} bytes ({proj_bytes/1024**2:.3f} MB)"
+                # )
                 out[layer] = self._maybe_cast(vec)
             return out
         vec = self._flatten([p for _, p in params])
+        raw_bytes = int(vec.numel() * vec.element_size())
+        # print(
+        #     f"gradient[all] raw_len={vec.numel()} raw_mem={raw_bytes} bytes ({raw_bytes/1024**2:.3f} MB)"
+        # )
+        out: Dict[str, torch.Tensor] = {}
+        if self.proj_cfg.enabled and getattr(self.proj_cfg, "save_raw", False):
+            out["all_raw"] = self._maybe_cast(vec)
         vec = self._apply_normalization(vec, mode=self.cfg.normalization)
         vec = self._maybe_project(vec)
-        return {"all": self._maybe_cast(vec)}
+        proj_bytes = int(vec.numel() * vec.element_size())
+        # print(
+        #     f"gradient[all] projected_len={vec.numel()} proj_mem={proj_bytes} bytes ({proj_bytes/1024**2:.3f} MB)"
+        # )
+        out["all"] = self._maybe_cast(vec)
+        return out
 
     def _select_params(self, model: nn.Module) -> Iterable[Tuple[str, nn.Parameter]]:
         for name, param in model.named_parameters():
