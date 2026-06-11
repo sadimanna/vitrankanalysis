@@ -29,6 +29,8 @@ from torchvision.datasets import CIFAR10, CIFAR100, ImageFolder
 from torchvision import transforms
 from torch.utils.data import DataLoader, Subset
 
+from utils.projection import ProjectionConfig, project_vector
+
 plt.rcParams["font.family"] = "Times New Roman"
 plt.rcParams["font.size"] = 14
 
@@ -112,7 +114,7 @@ def l2n2_id(X, k=2, j=1):
 # EXPERIMENT B
 # =========================
 
-def collect_per_image_gradients(model, loader, device):
+def collect_per_image_gradients(model, loader, device, proj_cfg=None, dtype=torch.float32):
     model.eval()
     params = [p for p in model.parameters() if p.requires_grad]
 
@@ -135,8 +137,10 @@ def collect_per_image_gradients(model, loader, device):
                 create_graph=False,
             )
 
-            vec = torch.cat([v.detach().flatten().cpu() for v in g])
-            grads.append(vec.numpy())
+            vec = torch.cat([v.detach().flatten() for v in g])
+            if proj_cfg is not None and proj_cfg.enabled:
+                vec = project_vector(vec, proj_cfg)
+            grads.append(vec.detach().to(dtype=dtype).cpu().numpy())
 
     return np.stack(grads)
 
@@ -247,7 +251,7 @@ def plot_jacobian_spectrum(S, out):
 # RESULTS DRIVER
 # =========================
 
-def run_all(model, dataset, output_dir="results", batch_size=32, max_samples=100):
+def run_all(model, dataset, output_dir="results", batch_size=32, max_samples=100, proj_cfg=None):
 
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True, parents=True)
@@ -264,7 +268,7 @@ def run_all(model, dataset, output_dir="results", batch_size=32, max_samples=100
     )
 
     print("Collecting gradients...")
-    G = collect_per_image_gradients(model, loader, device)
+    G = collect_per_image_gradients(model, loader, device, proj_cfg=proj_cfg)
 
     print(G.shape)
 
@@ -353,4 +357,13 @@ if __name__ == '__main__':
 
     dataset = CIFAR10(root="data", train=True, download=True, transform=transform)
 
-    run_all(model, dataset, output_dir="results/vit_cifar10", max_samples = 1000)
+    # Random projection: matches the approach used in train.py / utils/projection.py
+    proj_cfg = ProjectionConfig(
+        enabled=True,
+        method="gaussian",
+        dim=8192,
+        chunk_size=8192,  # No chunking for projection (fits in memory)
+        seed=123,
+    )
+
+    run_all(model, dataset, output_dir="results/vit_cifar10", max_samples=1000, proj_cfg=proj_cfg)
