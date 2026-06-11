@@ -68,36 +68,88 @@ def _evaluate_accuracy(
     return float(correct) / max(float(total), 1.0)
 
 
+from sklearn.neighbors import NearestNeighbors
+# import numpy as np
+
+
 def _compute_mle_intrinsic_dimension(
     samples: np.ndarray,
     n_neighbors: int,
 ) -> float | None:
-    if samples.shape[0] < 3:
+
+    n_samples = samples.shape[0]
+
+    if n_samples < 3:
         return None
 
-    k = min(int(n_neighbors), samples.shape[0] - 1)
+    k = min(int(n_neighbors), n_samples - 1)
+
     if k < 2:
         return None
 
-    diffs = samples[:, None, :] - samples[None, :, :]
-    distances = np.sqrt(np.sum(diffs * diffs, axis=-1))
-    np.fill_diagonal(distances, np.inf)
-    neighbor_distances = np.sort(distances, axis=1)[:, :k]
+    # +1 because the first neighbor returned is the point itself
+    nbrs = NearestNeighbors(
+        n_neighbors=k + 1,
+        metric="euclidean",
+        algorithm="auto",
+    )
+
+    nbrs.fit(samples)
+
+    distances, _ = nbrs.kneighbors(samples)
+
+    # Remove self-distance (0)
+    neighbor_distances = distances[:, 1:]
+
     reference_distance = neighbor_distances[:, -1][:, None]
-    ratios = reference_distance / np.maximum(neighbor_distances[:, :-1], 1e-12)
-    local_denominator = np.mean(np.log(np.maximum(ratios, 1e-12)), axis=1)
+
+    ratios = reference_distance / np.maximum(
+        neighbor_distances[:, :-1],
+        1e-12,
+    )
+
+    local_denominator = np.mean(
+        np.log(np.maximum(ratios, 1e-12)),
+        axis=1,
+    )
+
     local_ids = 1.0 / np.maximum(local_denominator, 1e-12)
+
     local_ids = local_ids[np.isfinite(local_ids)]
+
     if local_ids.size == 0:
         return None
+
     return float(np.mean(local_ids))
 
 
-def _pairwise_distances(samples: np.ndarray) -> np.ndarray:
-    diffs = samples[:, None, :] - samples[None, :, :]
-    distances = np.sqrt(np.sum(diffs * diffs, axis=-1))
+def _pairwise_distances(samples):
+    # samples: (N, D)
+    norms = np.sum(samples**2, axis=1, keepdims=True)  # (N,1)
+    dist_sq = norms + norms.T - 2 * samples @ samples.T
+    # numerical stability
+    dist_sq = np.maximum(dist_sq, 0)
+    distances = np.sqrt(dist_sq)
     np.fill_diagonal(distances, np.inf)
     return distances
+
+# def nearest_two_neighbors(samples):
+#     N = samples.shape[0]
+
+#     first = np.empty(N)
+#     second = np.empty(N)
+#     norms = np.sum(samples**2, axis=1)
+#     for i in range(N):
+#         dist_sq = (
+#             norms[i]
+#             + norms
+#             - 2 * samples @ samples[i]
+#         )
+#         dist_sq[i] = np.inf
+#         nn = np.partition(dist_sq, 1)[:2]
+#         first[i] = np.sqrt(nn[0])
+#         second[i] = np.sqrt(nn[1])
+#     return first, second
 
 
 def _compute_l2n2_intrinsic_dimension(

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from torchvision.datasets import CIFAR10, CIFAR100
 from torchvision import transforms
+import torchvision
 
 from sklearn.manifold import Isomap
 from sklearn.neighbors import NearestNeighbors
@@ -19,7 +20,14 @@ from sklearn.neighbors import NearestNeighbors
 def load_dataset(dataset_name="cifar10",
                  max_samples=5000):
 
-    transform = transforms.ToTensor()
+    transform = transforms.Compose([
+        transforms.Resize((64, 64)),
+        transforms.ToTensor()
+    ])
+
+    # transform = transforms.Compose([
+    #     transforms.ToTensor()
+    # ])
 
     if dataset_name.lower() == "cifar10":
         dataset = CIFAR10(
@@ -36,7 +44,11 @@ def load_dataset(dataset_name="cifar10",
             download=True,
             transform=transform
         )
-
+    elif dataset_name.lower() == "imagenet100":
+        dataset = torchvision.datasets.ImageFolder(
+            root="/home/siladittyamanna/Documents/smanna/iisc/work1/dataset/imagenet100/train",
+            transform=transform
+        )
     else:
         raise ValueError(
             "dataset_name must be cifar10 or cifar100"
@@ -385,12 +397,12 @@ def plot_intrinsic_dimension_trials(
 
 if __name__ == "__main__":
 
-    DATASET = "cifar10"
+    DATASET = "imagenet100"
 
     MAX_SAMPLES = 50000
 
-    SAMPLE_SIZES = [1000, 5000, 10000, 20000, 50000]
-    N_TRIALS = 5
+    SAMPLE_SIZES = [50000]
+    N_TRIALS = 1
     TRIAL_SEED = 42
 
     ISOMAP_MAX_DIM = 50

@@ -1,0 +1,102 @@
+Full training
+dim 8192
+epoch=19 test_acc=0.8389
+MLE intrinsic dimension = 137.5167
+L2N2 intrinsic dimension = 437.5667
+TWO-NN intrinsic dimension = 145.8027
+
+dim 1024
+epoch=19 test_acc=0.8394
+MLE intrinsic dimension = 99.2650
+L2N2 intrinsic dimension = 349.3169
+TWO-NN intrinsic dimension = 109.4200
+
+cifar10 
+MLE   = 27.16
+L2N2  = 101.28
+TWO-NN = 31.66
+
+
+cifar100
+MLE   = 24.65
+L2N2  = 93.82
+TWO-NN = 28.43
+
+imagenet100
+Validation set
+5000 samples...
+MLE   = 19.82
+L2N2  = 104.61
+TWO-NN = 31.89
+
+train set
+MLE   = 29.99
+L2N2  = 137.88
+TWO-NN = 40.89
+
+rank 2 
+dim 1024
+epoch=19 test_acc=0.7870
+MLE intrinsic dimension = 26.5576
+L2N2 intrinsic dimension = 99.6450
+TWO-NN intrinsic dimension = 33.2982
+
+rank 
+dim 1024
+epoch=19 test_acc=0.8099
+MLE intrinsic dimension = 34.4445
+L2N2 intrinsic dimension = 115.7459
+TWO-NN intrinsic dimension = 38.4158
+
+rank 16
+dim 8192
+epoch=19 test_acc=0.8408
+MLE intrinsic dimension = 89.5516
+L2N2 intrinsic dimension = 314.3398
+TWO-NN intrinsic dimension = 95.8630
+
+dim 1024
+epoch=19 test_acc=0.8438
+MLE intrinsic dimension = 72.0084
+L2N2 intrinsic dimension = 258.1975
+TWO-NN intrinsic dimension = 82.6776
+
+
+rank 32
+dim 8192
+epoch=19 test_acc=0.8496
+MLE intrinsic dimension = 138.1012
+L2N2 intrinsic dimension = 493.5167
+TWO-NN intrinsic dimension = 151.8194
+
+dim 1024
+epoch=19 test_acc=0.8491
+MLE intrinsic dimension = 96.3921
+L2N2 intrinsic dimension = 332.4786
+TWO-NN intrinsic dimension = 106.3492
+
+rank 64
+dim 8192
+epoch=19 test_acc=0.8532
+MLE intrinsic dimension = 199.2572
+L2N2 intrinsic dimension = 669.0973
+TWO-NN intrinsic dimension = 209.6191
+
+dim1024
+epoch=19 test_acc=0.8558
+MLE intrinsic dimension = 120.2322
+L2N2 intrinsic dimension = 434.2945
+TWO-NN intrinsic dimension = 135.0258
+
+rank 128
+project dim 8192
+epoch=19 test_acc=0.8591
+MLE intrinsic dimension = 260.2628
+L2N2 intrinsic dimension = 906.0413
+TWO-NN intrinsic dimension = 273.8720
+
+project dim 1024
+epoch=19 test_acc=0.8591
+MLE intrinsic dimension = 127.5194
+L2N2 intrinsic dimension = 484.9815
+TWO-NN intrinsic dimension = 146.8584

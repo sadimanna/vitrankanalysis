@@ -6,15 +6,15 @@ model:
   name: vit_small_patch16_224
   pretrained: true
   lora:
-    enabled: false
-    r: 16
-    alpha: 32
+    enabled: true
+    r: 128
+    alpha: 256
     dropout: 0.0
     target: all
 
 training:
-  epochs: 100
-  batch_size: 64
+  epochs: 20
+  batch_size: 128
   lr: 0.0003
   weight_decay: 0.05
   betas: [0.9, 0.999]
@@ -24,9 +24,9 @@ training:
 
   scheduler:
     name: cosine
-    warmup_epochs: 5
-    t_max: 100
-    step_size: 10
+    warmup_epochs: 0
+    t_max: 20
+    step_size: 1
     gamma: 0.1
 
   dataset:
@@ -62,8 +62,8 @@ training:
   projection:
     enabled: true
     method: achlioptas
-    dim: 16384
-    chunk_size: 16384
+    dim: 1024
+    chunk_size: 1024 #16384 #4*ln(((50000/128)/10)*100) / (0.01/2 - ((0.1)^3)/3) = 7089
     seed: 123
     save_raw: false
 
